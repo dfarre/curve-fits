@@ -16,3 +16,4 @@ htmlcov/
 .secrets.ini
 
 .ipynb_checkpoints/
+notebooks/*.html

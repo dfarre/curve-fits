@@ -8,7 +8,7 @@ ini.read('version.ini')
 with open('README.md') as readme:
     long_description = readme.read()
 
-tests_require = ['pytest-cov', 'jupyter']
+tests_require = ['pytest-cov', 'jupyter', 'beautifulsoup4']
 
 setuptools.setup(
     name=ini['version']['name'],

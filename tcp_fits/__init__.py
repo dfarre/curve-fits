@@ -1,13 +1,7 @@
+import abc
 import decimal
 
 import numpy
-import pandas
-
-
-def arange_frame(l, r, step, *functions):
-    x = numpy.arange(l, r, step)
-
-    return pandas.DataFrame({f.__name__: f(x) for f in functions}, index=x)
 
 
 def get_exponent(number):
@@ -21,9 +15,33 @@ def iround(number, to=1):
         decimal.Decimal('1.' + '0'*(to - 1)), rounding=decimal.ROUND_HALF_UP).scaleb(exp)
 
 
-class BaseRepr:
+class Repr(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
     def __str__(self):
-        raise NotImplementedError
+        """Object's text content"""
 
     def __repr__(self):
         return f'<{self.__class__.__name__}: {self}>'
+
+
+class Eq(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def eqkey(self):
+        """Return hashable key property to compare to others"""
+
+    def __eq__(self, other):
+        return self.eqkey() == other.eqkey()
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self.eqkey())
+
+
+class Call(Repr):
+    def __init__(self, name, *args, **kwargs):
+        self.name, self.args, self.kwargs = name, args, kwargs
+
+    def __str__(self):
+        return f'{self.name}(*{self.args}, **{self.kwargs})'
