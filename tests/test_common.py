@@ -1,7 +1,9 @@
 import decimal
 import unittest
 
-from tcp_fits import iround
+import numpy
+
+from curve_fits import iround
 
 
 class TestIround(unittest.TestCase):
@@ -16,3 +18,7 @@ class TestIround(unittest.TestCase):
 
     def test_text_0exp_even(self):
         self.assertEqual(iround('2.5', 1), decimal.Decimal('3'))
+
+    def test_float_inf(self):
+        self.assertListEqual(list(map(iround, (-numpy.inf, numpy.inf))), [
+            decimal.Decimal('-inf'), decimal.Decimal('inf')])

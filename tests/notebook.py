@@ -1,4 +1,3 @@
-import functools
 import os
 import re
 import subprocess
@@ -6,35 +5,36 @@ import subprocess
 import bs4
 
 
-class Notebook:
-    def __init__(self, path):
-        self.html_path = os.path.abspath(re.sub(r'.ipynb$', '.html', path))
-        self.path = path
+class NotebookTester:
+    def __init_subclass__(cls):
+        cls.test_notebooks = {
+            m.groups()[0]: os.path.join(cls.notebooks_path, m.string) for m in filter(
+                None, map(lambda n: re.match(r'^(.+)-test.ipynb$', n),
+                          os.listdir(cls.notebooks_path)))}
 
-    def __call__(self, method):
-        @functools.wraps(method)
-        def wrapper(test_case, *args, **kwargs):
-            subprocess.Popen([
-                'jupyter', 'nbconvert', '--execute', '--allow-errors', self.path]
-            ).communicate()
-            errors = ', '.join(self.get_error_input_numbers())
+        for name, path in cls.test_notebooks.items():
+            html_path = os.path.abspath(re.sub(r'.ipynb$', '.html', path))
 
-            assert not errors, f'Notebook {self.path} {errors} failed - ' \
-                f'check file://{self.html_path}'
+            def test(self):
+                subprocess.Popen([
+                    'jupyter', 'nbconvert', '--execute', '--allow-errors', path
+                ]).communicate()
 
-        return wrapper
+                with open(html_path) as html:
+                    soup = bs4.BeautifulSoup(html.read(), features='html.parser')
 
-    def get_error_input_numbers(self):
-        with open(self.html_path) as html:
-            soup = bs4.BeautifulSoup(html.read(), features='html.parser')
+                errors = ', '.join(list(cls.yield_error_input_numbers(soup)))
 
-        return [self.get_error_input_number(error) for error in soup.find_all(
-            'div', {'class': 'output_error'})]
+                assert not errors, f'Notebook {path} {errors} failed - ' \
+                    f'check file://{html_path}'
+
+            setattr(cls, f'test_{name}', test)
 
     @staticmethod
-    def get_error_input_number(error_soup):
-        parents = error_soup.parents
-        cell = [next(parents) for x in range(4)][-1]
-        content = cell.find('div', {'class': 'input_prompt'}).contents[0]
+    def yield_error_input_numbers(soup):
+        for error_soup in soup.find_all('div', {'class': 'output_error'}):
+            parents = error_soup.parents
+            cell = [next(parents) for x in range(4)][-1]
+            content = cell.find('div', {'class': 'input_prompt'}).contents[0]
 
-        return content.replace('\xa0', '').replace(':', '')
+            yield content.replace('\xa0', '').replace(':', '')

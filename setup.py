@@ -18,7 +18,7 @@ setuptools.setup(
     description='Fit computation time series  - curve fitting with scipy.optimize',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url='https://bitbucket.org/coleopter/time-complexity-profile-fits',
+    url='https://bitbucket.org/coleopter/curve-fits',
     classifiers=[
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
