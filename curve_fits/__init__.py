@@ -31,66 +31,6 @@ class Eq(metaclass=abc.ABCMeta):
         return hash(self.eqkey())
 
 
-class Scale(metaclass=abc.ABCMeta):
-    @abc.abstractmethod
-    def num_prod(self, number):
-        """Return the product"""
-
-    def __mul__(self, number):
-        if not number:
-            return 0
-        elif number == 1:
-            return self
-        elif isinstance(number, (int, float)):
-            return self.num_prod(number)
-        else:
-            raise NotImplementedError(f'Product by {number}')
-
-    def __rmul__(self, number):
-        return self.__mul__(number)
-
-    def __truediv__(self, number):
-        return self.__mul__(1/number)
-
-    def __rtruediv__(self, number):
-        raise NotImplementedError(f'{self} is not /-invertible')
-
-
-class Vector(Scale, metaclass=abc.ABCMeta):
-    @abc.abstractmethod
-    def add_other(self, other):
-        """Add other vector"""
-
-    @abc.abstractmethod
-    def add_number(self, number):
-        """Add numeric - interpreted as other vector"""
-
-    def __add__(self, other):
-        if not other:
-            return self
-        elif isinstance(other, self.__class__):
-            return self.add_other(other)
-        elif isinstance(other, (int, float)):
-            return self.add_number(other)
-        else:
-            raise NotImplementedError(f'Addition to {other}')
-
-    def __radd__(self, other):
-        return self.__add__(other)
-
-    def __sub__(self, other):
-        return self.__add__(-other)
-
-    def __rsub__(self, other):
-        return -self.__sub__(other)
-
-    def __neg__(self):
-        return self.__mul__(-1)
-
-    def __pos__(self):
-        return self
-
-
 class Call(Repr):
     def __init__(self, *args, **kwargs):
         self.args, self.kwargs = args, kwargs

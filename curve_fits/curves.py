@@ -4,12 +4,15 @@ import numpy
 
 from numpy.polynomial import polynomial
 
-from curve_fits import Repr, Vector, Scale
+from curve_fits import Repr
+from curve_fits.algebra import Vector, Scale
 
 EXPONENTS = {0: '', 1: '', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹'}
 
 
 class Curve(Repr, Vector):
+    support = numpy.arange(-10**3, 10**3 + 1)
+
     def __init__(self, *curves, shift=0):
         self.curves = curves
         self._add = shift
@@ -17,14 +20,23 @@ class Curve(Repr, Vector):
     def __call__(self, x: numpy.array):
         return self._add + sum([curve(x) for curve in self.curves])
 
+    def eat(self, other):
+        if isinstance(other, (int, float)):
+            return Curve(Polynomial(other))
+
+        return other
+
     def add_other(self, curve):
         return Curve(*(self.curves + curve.curves), shift=self._add+curve._add)
 
-    def add_number(self, number):
-        return Curve(*self.curves, shift=self._add+number)
-
     def num_prod(self, number):
         return Curve(*(number*cu for cu in self.curves), shift=number*self._add)
+
+    def braket(self, other):
+        if (self.support == other.support).all():
+            return numpy.dot(self(self.support), other(self.support))
+
+        raise NotImplementedError(f'Curves should have the same support')
 
     def __str__(self):
         return ' + '.join(([str(self._add)] if self._add else [])
@@ -35,11 +47,11 @@ class Curve(Repr, Vector):
 
 
 class AbstractCurve(Repr, Scale, metaclass=abc.ABCMeta):
-    def __init__(self, *parameters, pole=0, norm=1):
-        self.parameters, self.pole, self.norm = numpy.array(parameters), pole, norm
+    def __init__(self, *parameters, pole=0):
+        self.parameters, self.pole = numpy.array(parameters), pole
 
     def __call__(self, x: numpy.array):
-        return self.evaluate((x - self.pole)/self.norm)
+        return self.evaluate(x - self.pole)
 
     def __str__(self):
         return self.format(*self.parameters)
@@ -51,19 +63,27 @@ class AbstractCurve(Repr, Scale, metaclass=abc.ABCMeta):
     def kind(self):
         return self.__class__.__name__
 
-    @staticmethod
-    def format(*params):
+    def svar(self, exponent=1):
+        if exponent == 0:
+            return ''
+
+        exp = EXPONENTS.get(abs(exponent), f'^({abs(exponent)})')
+
+        return ('/' if exponent < 0 else '') + (
+            f'(x - {self.pole})'.replace('- -', '+ ') if self.pole else 'x') + exp
+
+    def format(self, *params):
         """Text representation given parameters `params`"""
 
 
 class NonLinearCurve(AbstractCurve, metaclass=abc.ABCMeta):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._mul = 1
+    def __init__(self, *parameters, pole=0, factor=1):
+        super().__init__(*parameters, pole=pole)
+        self._mul = factor
 
     def num_prod(self, number):
-        self._mul *= number
-        return self
+        return self.__class__(
+            *self.parameters, pole=self.pole, factor=number*self._mul)
 
 
 class XtoA(NonLinearCurve):
@@ -71,15 +91,18 @@ class XtoA(NonLinearCurve):
         return self._mul*self.parameters[0]*s**self.parameters[1]
 
     def format(self, *params):
-        return f'({self._mul*params[0]})s^({params[1]})'
+        return f'({self._mul*params[0]}){self.svar(params[1])}'
 
 
 class Piecewise(NonLinearCurve):
-    def __init__(self, jumps_at, curves, **super_kwds):
-        super().__init__(**super_kwds)
-
+    def __init__(self, jumps_at, curves, pole=0, factor=1):
+        super().__init__(pole=pole, factor=factor)
         self.jumps_at, self.piece_count = jumps_at, len(jumps_at) + 1
         self.curves = curves
+
+    def num_prod(self, number):
+        return self.__class__(
+            self.jumps_at, self.curves, pole=self.pole, factor=number*self._mul)
 
     def __str__(self):
         return ' | '.join(list(map(str, self.curves)))
@@ -104,26 +127,23 @@ class Piecewise(NonLinearCurve):
 
 class LinearCurve(AbstractCurve, metaclass=abc.ABCMeta):
     def num_prod(self, number):
-        self.parameters *= number
-        return self
+        return self.__class__(*(number*self.parameters), pole=self.pole)
 
 
 class Log(LinearCurve):
     def evaluate(self, s: numpy.array):
         return self.parameters[0]*numpy.log(s)
 
-    @staticmethod
-    def format(*params):
-        return f'({params[0]})log(s)'
+    def format(self, *params):
+        return f'({params[0]})log{self.svar()}'
 
 
 class Xlog(LinearCurve):
     def evaluate(self, s: numpy.array):
         return self.parameters[0]*s*numpy.log(s)
 
-    @staticmethod
-    def format(*params):
-        return f'({params[0]})s·log(s)'
+    def format(self, *params):
+        return f'({params[0]}){self.svar()}log{self.svar()}'
 
 
 class Polynomial(LinearCurve):
@@ -133,10 +153,8 @@ class Polynomial(LinearCurve):
     def kind(self):
         return f'Poly({len(self.parameters) - 1})'
 
-    @staticmethod
-    def format(*params):
-        return ' + '.join([f'({param})' + ('s' if d > 0 else '') + EXPONENTS.get(
-            d, f'^{d}') for d, param in enumerate(params)])
+    def format(self, *params):
+        return ' + '.join([f'({param}){self.svar(d)}' for d, param in enumerate(params)])
 
 
 class InverseXPolynomial(LinearCurve):
@@ -146,7 +164,7 @@ class InverseXPolynomial(LinearCurve):
     def kind(self):
         return f'Poly(-{len(self.parameters)})'
 
-    @staticmethod
-    def format(*params):
-        return ' + '.join(reversed([f'({param})/s' + EXPONENTS.get(n + 1, f'^{n + 1}')
-                                    for n, param in enumerate(reversed(params))]))
+    def format(self, *params):
+        return ' + '.join(reversed([
+            f'({param}){self.svar(-n - 1)}'
+            for n, param in enumerate(reversed(params))]))
