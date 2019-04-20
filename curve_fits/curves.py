@@ -123,7 +123,7 @@ class Xlog(LinearCurve):
 
     @staticmethod
     def format(*params):
-        return f'({params[0]})s*log(s)'
+        return f'({params[0]})s·log(s)'
 
 
 class Polynomial(LinearCurve):

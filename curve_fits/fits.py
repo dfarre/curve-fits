@@ -36,9 +36,6 @@ class Fit(Repr, Eq, metaclass=abc.ABCMeta):
     def __init__(self, series, *args, **kwargs):
         """Fit series - set `self.curve`"""
 
-    def __str__(self):
-        return str(self.curve)
-
     @classmethod
     def make_fits(cls, series, *init_calls):
         return {cls(series, *call.args, **call.kwargs) for call in init_calls}
@@ -67,6 +64,12 @@ class CurveFit(Fit):
         self.curve, coef, errors, self.residual, self.slope, self.cost = self._fit()
         self.measures = tuple(Measure(value, error) for value, error in zip(coef, errors))
 
+    def __str__(self):
+        return ' + '.join(
+            ([str(self.curve._add)] if self.curve._add else []) + [
+                curve.format(*measures) for curve, measures in zip(
+                    self.curve.curves, self.split_params(self.measures))])
+
     def evaluate(self, x, *parameters):
         return self.make_curve(parameters)(x)
 
@@ -75,9 +78,9 @@ class CurveFit(Fit):
             spec.curve_type(*params, **{**self.curve_defaults, **spec.kwds})
             for spec, params in zip(self.curve_specs, self.split_params(parameters))))
 
-    def split_params(self, parameters):
-        return [parameters[sum(self.curve_dofs[:i]):
-                           sum(self.curve_dofs[:i]) + self.curve_dofs[i]]
+    def split_params(self, params):
+        return [params[sum(self.curve_dofs[:i]):
+                       sum(self.curve_dofs[:i]) + self.curve_dofs[i]]
                 for i in range(len(self.curve_dofs))]
 
     def eqkey(self):
@@ -131,6 +134,9 @@ class PiecewiseFit(Fit):
                 **call.kwargs, **fit_kwargs}) for i, call in enumerate(curve_fit_calls))
         self.curve = curves.Piecewise(jumps_at, [fit.curve for fit in self.fits])
         self.dof = sum([fit.dof for fit in self.fits])
+
+    def __str__(self):
+        return ' | '.join(list(map(str, self.fits)))
 
     def eqkey(self):
         return self.jumps_at, self.fits
