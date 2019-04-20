@@ -1,12 +1,12 @@
 import abc
-import re
 
 import numpy
 
-from numpy.polynomial import polynomial
 from scipy import optimize
 
-from curve_fits import Eq, Repr, Piecewise, get_exponent, iround, norm
+from curve_fits import Eq, Repr, get_exponent, iround, norm
+
+from curve_fits import curves
 
 
 class Measure(Repr, Eq):
@@ -31,31 +31,71 @@ class Measure(Repr, Eq):
         return self.value_pm_error() + (f' {self.unit}' if self.unit else '')
 
 
-class SeriesFit(Repr, Eq, metaclass=abc.ABCMeta):
-    def __init__(self, series, initial_coef, method='lm', fraction=0.9, overfit=-1, sigma=10):
-        self.initial_coef = self.get_initial_coefficients(initial_coef)
-        self.dof = len(self.initial_coef) - 1
+class Fit(Repr, Eq, metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def __init__(self, series, *args, **kwargs):
+        """Fit series - set `self.curve`"""
+
+    def __str__(self):
+        return str(self.curve)
+
+    @classmethod
+    def make_fits(cls, series, *init_calls):
+        return {cls(series, *call.args, **call.kwargs) for call in init_calls}
+
+
+class CurveFit(Fit):
+    def __init__(self, series, *curve_specs, initial_params=None,
+                 method='lm', fraction=0.9, overfit=-1, sigma=10, **curve_defaults):
+        self.curve_dofs = tuple(spec.dof for spec in curve_specs)
+        self.dof = sum(self.curve_dofs)
+        self.initial_params = initial_params
+        self.curve_specs = curve_specs
+
+        if initial_params is None:
+            self.initial_params = [1]*self.dof
+        elif len(initial_params) != self.dof:
+            raise AssertionError(f'Expected {self.dof} DOF from curve specs - '
+                                 f'got {len(initial_params)} parameters')
+
         self.method, self.overfit, self.sigma = method, overfit, sigma
         self.xdata, self.ydata = map(numpy.array, (series.index, series))
         par_series = series.sample(int(fraction*self.xdata.shape[0]))
         self.par_xdata, self.par_ydata = map(numpy.array, (par_series.index, par_series))
+        self.curve_defaults = curve_defaults
 
-        self.function, coef, errors, self.residual, self.slope, self.cost = self._fit()
+        self.curve, coef, errors, self.residual, self.slope, self.cost = self._fit()
         self.measures = tuple(Measure(value, error) for value, error in zip(coef, errors))
+
+    def evaluate(self, x, *parameters):
+        return self.make_curve(parameters)(x)
+
+    def make_curve(self, parameters):
+        return curves.Curve(*(
+            spec.curve_type(*params, **{**self.curve_defaults, **spec.kwds})
+            for spec, params in zip(self.curve_specs, self.split_params(parameters))))
+
+    def split_params(self, parameters):
+        return [parameters[sum(self.curve_dofs[:i]):
+                           sum(self.curve_dofs[:i]) + self.curve_dofs[i]]
+                for i in range(len(self.curve_dofs))]
+
+    def eqkey(self):
+        return self.curve.kind(), self.measures
 
     def _fit(self):
         """"
         Computes the residual variation when adding the remaining data
-        from `fraction` to the whole - in order to avoid overfit.
+        from `fraction` to the whole - in order to handle overfitting.
         May raise:
           - RuntimeError: Optimal parameters not found
           - OptimizeWarning: Covariance of the parameters could not be estimated
         """
-        function, coef, errors, residual = self.fit(self.par_xdata, self.par_ydata)
+        curve, coef, errors, residual = self.fit(self.par_xdata, self.par_ydata)
         _, _, _, full_residual = self.fit(self.xdata, self.ydata)
         slope = (full_residual - residual) / (self.xdata.shape[0] - self.par_xdata.shape[0])
 
-        return function, coef, errors, residual, slope, self.compute_cost(residual, slope)
+        return curve, coef, errors, residual, slope, self.compute_cost(residual, slope)
 
     def compute_cost(self, residual, slope):
         return (residual*numpy.exp(self.overfit) +
@@ -63,52 +103,34 @@ class SeriesFit(Repr, Eq, metaclass=abc.ABCMeta):
 
     def fit(self, xdata, ydata, f=None):
         coef, cov = optimize.curve_fit(
-            self.evaluate, xdata, ydata, self.initial_coef, method=self.method)
-        function = self.make_function(*coef)
+            self.evaluate, xdata, ydata, self.initial_params, method=self.method)
+        curve = self.make_curve(coef)
 
-        return function, coef, numpy.sqrt(numpy.diag(cov)), norm(ydata - function(xdata))
+        return curve, coef, numpy.sqrt(numpy.diag(cov)), norm(ydata - curve(xdata))
 
-    def evaluate(self, x, *params):
-        return self.make_function(*params)(x)
-
-    @abc.abstractmethod
-    def make_function(self, *params):
-        """Return the fitted function"""
-
-    @abc.abstractmethod
-    def kind(self):
-        """Return short string specifier of the fitting function type"""
-
-    def eqkey(self):
-        return self.kind(), self.measures
-
-    @staticmethod
-    def get_initial_coefficients(coef_spec):
-        return [1]*(coef_spec + 1) if isinstance(coef_spec, int) else coef_spec
+    @classmethod
+    def make_fits(cls, series, *init_calls):
+        return {min((cls(series, *call.args, method=method, **call.kwargs)
+                     for method in {'lm', 'trf', 'dogbox'}), key=lambda fit: fit.cost)
+                for call in init_calls}
 
 
-class PiecewiseFit(Repr, Eq):
-    def __init__(self, series, piece_coef, jumps_at, fit_type, **kwargs):
+class PiecewiseFit(Fit):
+    def __init__(self, series, jumps_at, *curve_fit_calls, fraction=0.9, overfit=-1, sigma=1):
+        if not len(curve_fit_calls) == len(jumps_at) + 1:
+            raise AssertionError('1 curve fit call per piece required')
+
         self.jumps_at = tuple(jumps_at)
         self.heads = (series.index[0],) + self.jumps_at
         self.edges = (0, *(numpy.dot(
             numpy.array([numpy.where(series.index == x, 1, 0) for x in jumps_at]),
             numpy.arange(len(series.index)))), None)
-        self.piece_coef = SeriesFit.get_initial_coefficients(piece_coef)
-        self.dof = (len(jumps_at) + 1)*len(self.piece_coef)
-        self.fits = tuple(fit_type(
-            series.iloc[self.edges[i]:self.edges[i+1]], self.piece_coef, **kwargs)
-            for i in range(len(jumps_at) + 1))
-        self.function = Piecewise(jumps_at, [fit.function for fit in self.fits])
-
-    def __str__(self):
-        return ' | '.join([str(fit) for fit in self.fits])
-
-    def kind(self):
-        chain = re.sub(rf'^\[{self.heads[0]}\]', '', '-'.join([
-            f'[{head}]{fit.kind()}' for head, fit in zip(self.heads, self.fits)]))
-
-        return f'PW:{chain}'
+        fit_kwargs = dict(fraction=fraction, overfit=overfit, sigma=sigma)
+        self.fits = tuple(CurveFit(
+            series.iloc[self.edges[i]:self.edges[i+1]], *call.args, **{
+                **call.kwargs, **fit_kwargs}) for i, call in enumerate(curve_fit_calls))
+        self.curve = curves.Piecewise(jumps_at, [fit.curve for fit in self.fits])
+        self.dof = sum([fit.dof for fit in self.fits])
 
     def eqkey(self):
         return self.jumps_at, self.fits
@@ -116,16 +138,3 @@ class PiecewiseFit(Repr, Eq):
     @property
     def cost(self):
         return norm(numpy.array([fit.cost for fit in self.fits]))
-
-
-class PolynomialFit(SeriesFit):
-    def __str__(self):
-        return ' + '.join(f'({m.value_pm_error()})' + {0: '', 1: 'x'}.get(d, f'x^{d}')
-                          for d, m in enumerate(self.measures))
-
-    def kind(self):
-        return f'Poly({self.function.degree()})'
-
-    @staticmethod
-    def make_function(*coefficients):
-        return polynomial.Polynomial(coefficients)

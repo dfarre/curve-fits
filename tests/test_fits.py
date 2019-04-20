@@ -20,8 +20,3 @@ class MeasureTests(unittest.TestCase):
         assert measure.value == decimal.Decimal('2E+1')
         assert measure.error is None
         assert str(measure) == '2E+1 ± None sec'
-
-
-class FitEqualityTests(unittest.TestCase):
-    def test_equal_piecewise_fits(self):
-        pass

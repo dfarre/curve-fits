@@ -31,31 +31,77 @@ class Eq(metaclass=abc.ABCMeta):
         return hash(self.eqkey())
 
 
+class Scale(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def num_prod(self, number):
+        """Return the product"""
+
+    def __mul__(self, number):
+        if not number:
+            return 0
+        elif number == 1:
+            return self
+        elif isinstance(number, (int, float)):
+            return self.num_prod(number)
+        else:
+            raise NotImplementedError(f'Product by {number}')
+
+    def __rmul__(self, number):
+        return self.__mul__(number)
+
+    def __truediv__(self, number):
+        return self.__mul__(1/number)
+
+    def __rtruediv__(self, number):
+        raise NotImplementedError(f'{self} is not /-invertible')
+
+
+class Vector(Scale, metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def add_other(self, other):
+        """Add other vector"""
+
+    @abc.abstractmethod
+    def add_number(self, number):
+        """Add numeric - interpreted as other vector"""
+
+    def __add__(self, other):
+        if not other:
+            return self
+        elif isinstance(other, self.__class__):
+            return self.add_other(other)
+        elif isinstance(other, (int, float)):
+            return self.add_number(other)
+        else:
+            raise NotImplementedError(f'Addition to {other}')
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
+    def __sub__(self, other):
+        return self.__add__(-other)
+
+    def __rsub__(self, other):
+        return -self.__sub__(other)
+
+    def __neg__(self):
+        return self.__mul__(-1)
+
+    def __pos__(self):
+        return self
+
+
 class Call(Repr):
-    def __init__(self, name, *args, **kwargs):
-        self.name, self.args, self.kwargs = name, args, kwargs
+    def __init__(self, *args, **kwargs):
+        self.args, self.kwargs = args, kwargs
 
     def __str__(self):
-        return f'{self.name}(*{self.args}, **{self.kwargs})'
+        return f'(*{self.args}, **{self.kwargs})'
 
 
-class Piecewise:
-    def __init__(self, jumps_at, functions):
-        self.jumps_at, self.piece_count = jumps_at, len(jumps_at) + 1
-        self.functions = numpy.array(functions)
-
-        if not self.functions.shape[0] == self.piece_count:
-            raise AssertionError('1 function <-> 1 piece required')
-
-    def __call__(self, x: numpy.array):
-        functions = numpy.dot(self.conditions(x), self.functions)
-
-        return numpy.array([f(v) for f, v in zip(functions, x)])
-
-    def conditions(self, x):
-        return numpy.where(numpy.array([x < self.jumps_at[0]] + [
-            self.jumps_at[i] <= x < self.jumps_at[i+1] for i in range(self.piece_count - 2)
-        ] + [x >= self.jumps_at[self.piece_count-2]]).transpose(), 1, 0)
+class Spec:
+    def __init__(self, curve_type, dof, **kwargs):
+        self.curve_type, self.dof, self.kwds = curve_type, dof, kwargs
 
 
 class PyplotShow:
@@ -70,6 +116,7 @@ class PyplotShow:
             plot_method(obj, *args, **{**kwds, 'axes': axes, 'figure': figure})
             pyplot.grid()
             pyplot.show()
+            return figure, axes
 
         return wrapper
 
