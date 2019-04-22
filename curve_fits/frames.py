@@ -6,6 +6,8 @@ import numpy
 
 from matplotlib import pyplot
 
+from hilbert import spaces
+
 from curve_fits import PyplotShow
 
 from curve_fits import fits
@@ -17,6 +19,7 @@ class FittingFrame:
     def __init__(self, *args, label='', fraction=0.9, overfit=-1, sigma=1, **kwargs):
         self.fit_kwargs = dict(fraction=fraction, overfit=overfit, sigma=sigma)
         self.data = pandas.DataFrame(*args, **kwargs)
+        self.space = spaces.LebesgueCurveSpace(spaces.Reals.from_index(self.data.index))
         self._fits = {key: set() for key in list(self.data)}
         self.label = label
 
@@ -31,7 +34,8 @@ class FittingFrame:
             for call in call_sequence:
                 call.kwargs.update(self.fit_kwargs)
 
-            self._fits[key].update(fit_type.make_fits(self.data[key], *call_sequence))
+            self._fits[key].update(fit_type.make_fits(
+                self.data[key], self.space, *call_sequence))
 
     def fit_all_with(self, *curve_fit_calls, piecewise=()):
         self.fit(**dict.fromkeys(self.data, curve_fit_calls))

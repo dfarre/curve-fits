@@ -73,6 +73,7 @@ def get_exponent(number):
 
 
 def iround(number, to=1):
+    """Round to `to` significant digits"""
     exp = get_exponent(number)
 
     if exp == numpy.inf:

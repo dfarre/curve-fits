@@ -6,7 +6,7 @@ from scipy import optimize
 
 from curve_fits import Eq, Repr, get_exponent, iround, norm
 
-from curve_fits import curves
+from hilbert.curves import PiecewiseCurve
 
 
 class Measure(Repr, Eq):
@@ -33,17 +33,18 @@ class Measure(Repr, Eq):
 
 class Fit(Repr, Eq, metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def __init__(self, series, *args, **kwargs):
-        """Fit series - set `self.curve`"""
+    def __init__(self, series, space, *args, **kwargs):
+        """Fit series - set `self.curve` in `space`"""
 
     @classmethod
-    def make_fits(cls, series, *init_calls):
-        return {cls(series, *call.args, **call.kwargs) for call in init_calls}
+    def make_fits(cls, series, space, *init_calls):
+        return {cls(series, space, *call.args, **call.kwargs) for call in init_calls}
 
 
 class CurveFit(Fit):
-    def __init__(self, series, *curve_specs, initial_params=None,
+    def __init__(self, series, space, *curve_specs, initial_params=None,
                  method='lm', fraction=0.9, overfit=-1, sigma=10, **curve_defaults):
+        self.space = space
         self.curve_dofs = tuple(spec.dof for spec in curve_specs)
         self.dof = sum(self.curve_dofs)
         self.initial_params = initial_params
@@ -65,16 +66,14 @@ class CurveFit(Fit):
         self.measures = tuple(Measure(value, error) for value, error in zip(coef, errors))
 
     def __str__(self):
-        return ' + '.join(
-            ([str(self.curve._add)] if self.curve._add else []) + [
-                curve.format(*measures) for curve, measures in zip(
-                    self.curve.curves, self.split_params(self.measures))])
+        return ' + '.join([curve.format(*measures) for curve, measures in zip(
+            self.curve.curves, self.split_params(self.measures))])
 
     def evaluate(self, x, *parameters):
         return self.make_curve(parameters)(x)
 
     def make_curve(self, parameters):
-        return curves.Curve(*(
+        return self.space(*(
             spec.curve_type(*params, **{**self.curve_defaults, **spec.kwds})
             for spec, params in zip(self.curve_specs, self.split_params(parameters))))
 
@@ -112,17 +111,19 @@ class CurveFit(Fit):
         return curve, coef, numpy.sqrt(numpy.diag(cov)), norm(ydata - curve(xdata))
 
     @classmethod
-    def make_fits(cls, series, *init_calls):
-        return {min((cls(series, *call.args, method=method, **call.kwargs)
+    def make_fits(cls, series, space, *init_calls):
+        return {min((cls(series, space, *call.args, method=method, **call.kwargs)
                      for method in {'lm', 'trf', 'dogbox'}), key=lambda fit: fit.cost)
                 for call in init_calls}
 
 
 class PiecewiseFit(Fit):
-    def __init__(self, series, jumps_at, *curve_fit_calls, fraction=0.9, overfit=-1, sigma=1):
+    def __init__(self, series, space, jumps_at, *curve_fit_calls,
+                 fraction=0.9, overfit=-1, sigma=1):
         if not len(curve_fit_calls) == len(jumps_at) + 1:
             raise AssertionError('1 curve fit call per piece required')
 
+        self.space = space
         self.jumps_at = tuple(jumps_at)
         self.heads = (series.index[0],) + self.jumps_at
         self.edges = (0, *(numpy.dot(
@@ -130,9 +131,9 @@ class PiecewiseFit(Fit):
             numpy.arange(len(series.index)))), None)
         fit_kwargs = dict(fraction=fraction, overfit=overfit, sigma=sigma)
         self.fits = tuple(CurveFit(
-            series.iloc[self.edges[i]:self.edges[i+1]], *call.args, **{
+            series.iloc[self.edges[i]:self.edges[i+1]], self.space, *call.args, **{
                 **call.kwargs, **fit_kwargs}) for i, call in enumerate(curve_fit_calls))
-        self.curve = curves.Piecewise(jumps_at, [fit.curve for fit in self.fits])
+        self.curve = self.space(PiecewiseCurve(jumps_at, [fit.curve for fit in self.fits]))
         self.dof = sum([fit.dof for fit in self.fits])
 
     def __str__(self):
