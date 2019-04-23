@@ -8,14 +8,14 @@ ini.read('version.ini')
 with open('README.md') as readme:
     long_description = readme.read()
 
-tests_require = ['pytest-cov', 'jupyter', 'beautifulsoup4']
+tests_require = ['pytest-cov', 'ipynb-tests@git+https://bitbucket.org/coleopter/ipynb-tests']
 
 setuptools.setup(
     name=ini['version']['name'],
     version=ini['version']['value'],
     author='Daniel Farré Manzorro',
     author_email='d.farre.m@gmail.com',
-    description='Fit computation time series  - curve fitting with scipy.optimize',
+    description='Curve fitting with scipy.optimize - fit computation time series',
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://bitbucket.org/coleopter/curve-fits',

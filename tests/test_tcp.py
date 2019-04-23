@@ -1,7 +1,7 @@
 import unittest
 
-from tests import notebook
+from ipynb_tests import tester
 
 
-class Tests(notebook.NotebookTester, unittest.TestCase):
+class Tests(tester.NotebookTester, unittest.TestCase):
     notebooks_path = 'notebooks/'
