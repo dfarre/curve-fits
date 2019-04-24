@@ -8,7 +8,7 @@ ini.read('version.ini')
 with open('README.md') as readme:
     long_description = readme.read()
 
-tests_require = ['pytest-cov', 'ipynb-tests@git+https://bitbucket.org/coleopter/ipynb-tests']
+tests_require = ['pytest-cov', 'ipynb-tests']
 
 setuptools.setup(
     name=ini['version']['name'],
