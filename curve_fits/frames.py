@@ -8,18 +8,17 @@ from matplotlib import pyplot
 
 from hilbert import spaces
 
-from curve_fits import PyplotShow
+from hilbert.stock import PyplotShow
 
 from curve_fits import fits
-
-GOLDEN_RATIO = 1.61803398875
 
 
 class FittingFrame:
     def __init__(self, *args, label='', fraction=0.9, overfit=-1, sigma=1, **kwargs):
         self.fit_kwargs = dict(fraction=fraction, overfit=overfit, sigma=sigma)
         self.data = pandas.DataFrame(*args, **kwargs)
-        self.space = spaces.LebesgueCurveSpace(spaces.Reals.from_index(self.data.index))
+        self.space = spaces.R1Field.from_index(spaces.LebesgueCurveSpace,
+                                               self.data.index)
         self._fits = {key: set() for key in list(self.data)}
         self.label = label
 
@@ -53,7 +52,7 @@ class FittingFrame:
 
         return pandas.DataFrame(data[:, 2:], columns=['kind', 'fit', 'DOF'], index=index)
 
-    @PyplotShow(figsize=(5*2*GOLDEN_RATIO, 5))
+    @PyplotShow()
     def plot_costs(self, key, limit=None, rotation=90, **kwargs):
         fits = self.best_fits(limit).loc[key]
         x = numpy.arange(len(fits))
@@ -61,10 +60,10 @@ class FittingFrame:
         pyplot.xticks(x, fits.kind, rotation=rotation)
         pyplot.title('Fit costs - ascending')
 
-    @PyplotShow(figsize=(8*GOLDEN_RATIO, 8), style='o-', alpha=0.5)
+    @PyplotShow()
     def plot(self, limit=2, **kwargs):
         axes = kwargs.pop('axes')
-        self.data.plot(ax=axes, **kwargs)
+        self.data.plot(ax=axes, style='o-', alpha=0.5, **kwargs)
 
         for (key, cost), (kind, fit, dof) in self.best_fits(limit).iterrows():
             x = numpy.array(self.data.index)

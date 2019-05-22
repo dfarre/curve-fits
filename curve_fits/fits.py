@@ -6,7 +6,7 @@ from scipy import optimize
 
 from curve_fits import Eq, Repr, get_exponent, iround, norm
 
-from hilbert.curves import PiecewiseCurve
+from hilbert.curves import lib
 
 
 class Measure(Repr, Eq):
@@ -133,7 +133,8 @@ class PiecewiseFit(Fit):
         self.fits = tuple(CurveFit(
             series.iloc[self.edges[i]:self.edges[i+1]], self.space, *call.args, **{
                 **call.kwargs, **fit_kwargs}) for i, call in enumerate(curve_fit_calls))
-        self.curve = self.space(PiecewiseCurve(jumps_at, [fit.curve for fit in self.fits]))
+        self.curve = self.space(
+            lib.PiecewiseCurve(jumps_at, [fit.curve for fit in self.fits]))
         self.dof = sum([fit.dof for fit in self.fits])
 
     def __str__(self):
